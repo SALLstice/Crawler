@@ -1,7 +1,7 @@
 import random as r
 import numpy as np
 
-TPHP = 0.2
+TPHP = 0.25
 TPA = 0.1
 TPD = 0.2
 TPF = 0.7
