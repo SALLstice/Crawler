@@ -9,12 +9,21 @@ TPH = 0.1
 TPK = 0.3
 TPM = 0.2
 TPC = 0.2
-TREASURE_DROP_RATE = 0.45
-HAZARD_RATE = 0.3
+TREASURE_DROP_RATE  = .45
+HAZARD_RATE         = .2
+PERCENT_OPEN        = .1
+PERCENT_SECRET      = .1
+PERCENT_LOCKED      = .2
+PERCENT_TRAPPED     = .1
+WANDER_CHANCE       = 0.3
+MONSTER_SPAWN_RATE  = 0.5
+SMALL_MONSTER_CHANCE = 0.3
+MEDIUM_MONSTER_CHANCE = 0.2
+BIG_MONSTER_CHANCE = 0.1
 
 class Dungeon:
-    def __init__(self):
-        pass
+    def __init__(self, rooms):
+        self.rooms = rooms
 
 class Monster:
     def __init__(self, health, attack):
@@ -38,17 +47,17 @@ class Hazard:
         self.disarmed = True
 
 class Player:
-    def __init__(self, MAXHP, attack, hunger, position, inv):
+    def __init__(self, MAXHP, attack, hungerBonus, position, inv):
         self.health = MAXHP
         self.MAXHP = MAXHP
         self.attack = attack
-        self.hunger = hunger
+        self.hunger = 101 #1 extra for initial equipping
         self.position = position
         self.inventory = inv
         self.MAXHPBonus = 0
         self.damageBonus = 0
         self.defenseBonus = 0
-        self.hungerBonus = 0
+        self.hungerBonus = hungerBonus
         self.equipment = None
         self.hasMap = False
         self.hasCompass = False
@@ -62,6 +71,7 @@ class Player:
     def hurt(self, hurtValue):
         self.health -= hurtValue
         if self.health <= 0:
+            print(displayRoom(player.position))
             print("dead")
             quit()
 
@@ -80,7 +90,7 @@ def buildDungeon(dSize):
 
     row = dSize - 1
     col = int((dSize - 1) / 2)
-    a[row][col] = buildRoom(count)
+    a[row][col] = buildRoom(count, row)
     dmap[row][col] = count
 
     for cnt in range(routeCount):
@@ -97,63 +107,63 @@ def buildDungeon(dSize):
 
             if dir == 1 and col > 0:
 
-                if a[row][col].doors["W"].state == -1:
+                if not a[row][col].doors["W"].door:
                     a[row][col].doors["W"] = buildDoor()
 
                 col -= 1
 
                 if a[row][col] is None:
-                    a[row][col] = buildRoom(count)
+                    a[row][col] = buildRoom(count, row)
                     dmap[row][col] = count
                     count += 1
 
-                if a[row][col].doors["E"].state == -1:
+                if not a[row][col].doors["E"].door:
                     a[row][col].doors["E"] = buildDoor()
 
             elif dir in [2, 3]:
 
-                if a[row][col].doors["N"].state == -1:
+                if not a[row][col].doors["N"].door:
                     a[row][col].doors["N"] = buildDoor()
 
                 row -= 1
 
                 if row != -1 and a[row][col] is None:
-                    a[row][col] = buildRoom(count)
+                    a[row][col] = buildRoom(count, row)
                     dmap[row][col] = count
                     count += 1
 
                 if a[row][col] is not None and row not in  [-1, dSize-1]:
-                    if a[row][col].doors["S"] is None:
+                    if not a[row][col].doors["S"].door:
                         a[row][col].doors["S"] = buildDoor()
 
             elif dir == 4 and col < dungeonSize-1:
 
-                if a[row][col].doors["E"].state == -1:
+                if not a[row][col].doors["E"].door:
                     a[row][col].doors["E"] = buildDoor()
 
                 col += 1
 
                 if a[row][col] is None:
-                    a[row][col] = buildRoom(count)
+                    a[row][col] = buildRoom(count, row)
                     dmap[row][col] = count
                     count += 1
 
-                if a[row][col].doors["W"].state == -1:
+                if not a[row][col].doors["W"].door:
                     a[row][col].doors["W"] = buildDoor()
 
             elif dir == 5 and row != dungeonSize-1:
 
-                if a[row][col].doors["S"].state == -1:
+                if not a[row][col].doors["S"].door:
                     a[row][col].doors["S"] = buildDoor()
 
                 row += 1
 
                 if a[row][col] is None:
-                    a[row][col] = buildRoom(count)
+                    a[row][col] = buildRoom(count, row)
                     dmap[row][col] = count
                     count += 1
 
-                if a[row][col].doors["N"].state == -1:
+                if not a[row][col].doors["N"].door:
                     a[row][col].doors["N"] = buildDoor()
 
     return a, dmap, count
@@ -168,31 +178,35 @@ class Room:
         self.searched = False
         self.visited = False
 
-def buildRoom(count):
+def buildRoom(count, row):
     global TPHP, TPA, TPD, TPF, TPH, TPK, TPM, TPC
     global TREASURE_DROP_RATE
     global HAZARD_RATE
 
-    do = {"W": Door(-1), "N": Door(-1), "E": Door(-1), "S": Door(-1)}
+    wall = Door(False,False,False,False,False,False,False,0)
+
+    do = {"W": wall, "N": wall, "E": wall, "S": wall}
     mo = []
     tre = []
-    haz = []
 
-    # Add Hazards
+    # Add Hazard
     if r.random() <= HAZARD_RATE:
         haz = Hazard(r.choices(population=[True,False], weights=[0.3,0.7]),r.randint(1,4))
     else:
-        haz = Hazard(True,0,True)
+        haz = None
 
     # Add Monsters
-    if count <= int(dungeonSize / 2):
-        for i in range(r.randrange(0, 3)):
+    if r.random() <= MONSTER_SPAWN_RATE:
+        smallMonChance = ((2*row)/dungeonSize) - 1
+        mediumMonChance = -(((3*row)/dungeonSize)**2)+1
+        bigMonChance = -((2*row)/dungeonSize) + 1
+
+        monToAdd = r.choices(population=["S","M","B"], weights=[smallMonChance,mediumMonChance,bigMonChance])[0]
+        if monToAdd == "S":
             mo.append(Monster(2, 1))
-    elif count <= dungeonSize:
-        for i in range(r.randrange(0, 2)):
+        elif monToAdd == "M":
             mo.append(Monster(2, 2))
-    elif count <= dungeonSize * 2:
-        for i in range(r.randrange(0, 2)):
+        elif monToAdd == "B":
             mo.append(Monster(3, 3))
 
     # Add Treasure
@@ -236,85 +250,147 @@ def buildRoom(count):
     roomBuild = Room(count, do, mo, tre, haz)
     return roomBuild
 
+def wanderingMonsters():
+    for i in range(dungeonSize):
+        for j in range(dungeonSize):
+            if dungeon[i][j] is not None and not player.position == [i,j]:
+                if dungeon[i][j].monsters:
+                    opendoors = [door for door in dungeon[i][j].doors if dungeon[i][j].doors[door].door and dungeon[i][j].doors[door].opened]
+
+                    if opendoors:
+                        for monster in dungeon[i][j].monsters:
+                            if r.random() <= WANDER_CHANCE:
+                                wanderection = r.choices(opendoors)[0]
+                                if wanderection == "N" and dungeon[i-1][j]:
+                                    dungeon[i-1][j].monsters.append(monster)
+                                elif wanderection == "E":
+                                    dungeon[i][j+1].monsters.append(monster)
+                                elif wanderection == "S":
+                                    dungeon[i+1][j].monsters.append(monster)
+                                elif wanderection == "W":
+                                    dungeon[i][j-1].monsters.append(monster)
+
+                                dungeon[i][j].monsters = [x for x in dungeon[i][j].monsters if x != monster]
+
+
 class Door:
-    def __init__(self, state, trapped = False, trapDamage = 0):
-        self.state = state
-        # -1 : Wall
-        #  0 : Open
-        #  1 : Closed
-        #  2 : Locked
-        #  3 : Secret
-        #  4 : Hidden
+    def __init__(self, door, opened, locked, secret, hidden, trapped, trapHidden, trapDamage = 0):
+        self.door = door
+        self.opened = opened
+        self.locked = locked
+        self.secret = secret
+        self.hidden = hidden
         self.trapped = trapped
+        self.trapHidden = trapHidden
         self.trapDamage = trapDamage
 
+    def open(self):
+        self.opened = True
+        self.locked = False
+        self.secret = False
+        self.hidden = False
+        self.trapped = False
+
+    def unlock(self):
+        self.locked = False
+
 def buildDoor():
-    PERCENT_SECRET = .1
-    PERCENT_LOCKED = .2
-    PERCENT_TRAPPED = .1
 
-    randChoice = r.choices(population=['secret', 'locked', 'closed'],
-                           weights=[PERCENT_SECRET, PERCENT_LOCKED, 1-(PERCENT_SECRET+PERCENT_LOCKED)])[0]
-
-    if randChoice == 'secret':
-        doorbuild = Door(4)
-    elif randChoice == 'locked':
-        doorbuild = Door(2)
+    if r.random() <= PERCENT_OPEN:
+        isOpen = True
+        isLocked = False
+        isSecret = False
+        isHidden = False
+        isTrapped = False
+        trapHidden = False
+        trapDamage = 0
     else:
-        doorbuild = Door(1)
+        isOpen = False
 
+        if r.random() <= PERCENT_LOCKED:
+            isLocked = True
+        else:
+            isLocked = False
 
+        if r.random() <= PERCENT_SECRET:
+            isSecret = True
+            isHidden = True
+        else:
+            isSecret = False
+            isHidden = False
 
-    return doorbuild
+        if r.random() <= PERCENT_TRAPPED:
+            isTrapped = True
+            trapHidden = True
+            trapDamage = r.randint(1,3)
+        else:
+            isTrapped = False
+            trapHidden = False
+            trapDamage= 0
+
+    doorBuild = Door(True,isOpen,isLocked,isSecret,isHidden,isTrapped,trapHidden,trapDamage)
+
+    return doorBuild
 
 def move(pos, dir):
 
     getAttacked(pos)
 
-    if dungeon[pos[0], pos[1]].doors[dir].state > -1:       #if door is not a wall
-        if dungeon[pos[0], pos[1]].doors[dir].state == 2:
-            prompt = input("B/P/K? ").upper()
+    roomDoor = dungeon[pos[0], pos[1]].doors[dir]
+
+    if roomDoor.door:       #if door is not a wall
+        if roomDoor.locked:
+            if "K" in player.inventory:
+                prompt = input("B/P/K? ").upper()
+            else:
+                prompt = input("B/P? ").upper()
+
             if prompt == "B":
                 player.hurt(1)
-                dungeon[pos[0], pos[1]].doors[dir].state = 1
+                roomDoor.unlock()
             if prompt == "P":
                 player.starve(5)
-                dungeon[pos[0], pos[1]].doors[dir].state = 1
+                roomDoor.unlock()
             if prompt == "K":
                 for idx, item in enumerate(player.inventory):
                     if item.affectedStat == "K":
                         del player.inventory[idx]
-                        dungeon[pos[0], pos[1]].doors[dir].state = 1
+                        roomDoor.unlock()
                         break
+        elif roomDoor.trapped:
+            if roomDoor.trapHidden:
+                player.hurt(roomDoor.trapDamage)
+                roomDoor.trapHidden = False
+            else:
+                player.starve(roomDoor.trapDamage)
+                roomDoor.trapped = False
         else:
-            dungeon[pos[0], pos[1]].doors[dir].state = 0
+            roomDoor.open()
             player.starve(1)
 
             if dir == "W":
                 player.position[1] -= 1
-                dungeon[player.position[0], player.position[1]].doors["E"].state = 0
+                dungeon[player.position[0], player.position[1]].doors["E"].open()
             elif dir == "N":
-                if dungeon[pos[0], pos[1]].doors[dir].state > -1 and pos[0] == 0:
+                if not dungeon[pos[0], pos[1]].doors[dir].door and pos[0] == 0:
                     print ("esc")
                     quit()
                 else:
                     player.position[0] -= 1
-                    dungeon[player.position[0], player.position[1]].doors["S"].state = 0
+                    dungeon[player.position[0], player.position[1]].doors["S"].open()
             elif dir == "E":
                 player.position[1] += 1
-                dungeon[player.position[0], player.position[1]].doors["W"].state = 0
+                dungeon[player.position[0], player.position[1]].doors["W"].open()
             elif dir == "S":
                 player.position[0] += 1
-                dungeon[player.position[0], player.position[1]].doors["N"].state = 0
-
+                dungeon[player.position[0], player.position[1]].doors["N"].open()
 
 def fight(pos, action):
     action = int(action[1:])
 
-    dungeon[pos[0], pos[1]].monsters[action].health -= (player.attack + player.damageBonus)
-    player.starve(2)
-
-    getAttacked(pos)
+    if action < len(dungeon[pos[0], pos[1]].monsters):
+        dungeon[pos[0], pos[1]].monsters[action].health -= (player.attack + player.damageBonus)
+        getAttacked(pos)
 
 def getAttacked(pos):
     if len(dungeon[pos[0], pos[1]].monsters) >= 1:
@@ -327,12 +403,15 @@ def search(pos):
     player.starve(3)
 
     for door in pr.doors:
-        if pr.doors[door].state > -1:
-            if pr.doors[door].state == 4:
-                pr.doors[door].state = 3
+        if pr.doors[door].door:
+            if pr.doors[door].hidden:
+                pr.doors[door].hidden = False
+            if pr.doors[door].trapped and pr.doors[door].trapHidden:
+                pr.doors[door].trapHidden = False
 
-    if pr.hazard.hidden:
-        pr.hazard.hidden = False
+    if pr.hazard:
+        if pr.hazard.hidden:
+            pr.hazard.hidden = False
 
     pr.searched = True
 
@@ -345,22 +424,25 @@ def displayRoom(pos):
                    f"PD:{player.defenseBonus} PH:{player.hunger} ({player.hungerBonus}) "
     doorlist = []
 
-    if not pr.hazard.hidden and not pr.hazard.disarmed:
-        roomDisplay += f"H:{pr.hazard.damage} "
-    elif not pr.hazard.hidden and pr.hazard.disarmed:
-        roomDisplay += f"H:{pr.hazard.damage}[D] "
+    if pr.hazard:
+        if not pr.hazard.hidden and not pr.hazard.disarmed:
+            roomDisplay += f"H:{pr.hazard.damage} "
+        elif not pr.hazard.hidden and pr.hazard.disarmed:
+            roomDisplay += f"H:{pr.hazard.damage}[D] "
 
     for door in pr.doors:
-        if pr.doors[door].state > -1:
-            if pr.doors[door].state != 4:
+        if pr.doors[door].door:
+            if not pr.doors[door].hidden:
                 dstat = door
-                if pr.doors[door].state == 3:
+                if pr.doors[door].secret:
                     dstat += "S"
-                if pr.doors[door].state == 2:
+                if pr.doors[door].trapped and not pr.doors[door].trapHidden:
+                    dstat += "T"
+                if pr.doors[door].locked:
                     dstat += "L"
-                if pr.doors[door].state == 1:
+                if not pr.doors[door].opened:
                     dstat += "C"
-                if pr.doors[door].state == 0:
+                elif pr.doors[door].opened:
                     dstat += "O"
                 doorlist.append(dstat)
     roomDisplay += f"{doorlist} "
@@ -395,11 +477,7 @@ def pickupTreasure(pos):
 
     getAttacked(pos)
 
-    if not pr.hazard.disarmed:
-        player.hurt(pr.hazard.damage)
-        pr.hazard.hidden = False
-        pr.hazard.disarmed = True
-    else:
+    if not pr.hazard or pr.hazard.disarmed:
         for treasure in pr.treasures:
             if treasure.affectedStat not in ["C", "M"]:
                 player.inventory.append(treasure)
@@ -409,6 +487,11 @@ def pickupTreasure(pos):
                 player.hasMap = True
 
         dungeon[player.position[0], player.position[1]].treasures = None
+
+    elif pr.hazard and not pr.hazard.disarmed:
+            player.hurt(pr.hazard.damage)
+            pr.hazard.hidden = False
+            pr.hazard.disarmed = True
 
 def inventory():
     for idx, item in enumerate(player.inventory):
@@ -428,28 +511,41 @@ def inventory():
 
 def useItem(usedItem):
     if usedItem.affectedStat != 'F':
-        player.MAXHPBonus = 0
-        player.damageBonus = 0
-        player.defenseBonus = 0
-        player.hungerBonus = 0
+
+        if not usedItem.equipped:
+            player.starve(1)
 
         for invItem in player.inventory:
-            if usedItem == invItem:
-                invItem.equipped = True
-            else:
+            if invItem.equipped:
+                unequip(invItem)
                 invItem.equipped = False
+            if usedItem == invItem:
+                equip(usedItem)
+                invItem.equipped = True
 
-    if usedItem.affectedStat == "HP": #Increase Max Health
-        player.MAXHPBonus = usedItem.statBonus
-    elif usedItem.affectedStat == "A": #increase damage
-        player.damageBonus = usedItem.statBonus
-    elif usedItem.affectedStat == "D": #increase armor
-        player.defenseBonus = usedItem.statBonus
     elif usedItem.affectedStat == 'F': #feed
         player.hunger += usedItem.statBonus
         player.inventory = [y for y in player.inventory if y != usedItem]
-    elif usedItem.affectedStat == "H": #satiation
-        player.hungerBonus = usedItem.statBonus
+
+def equip(item):
+    if item.affectedStat == "HP": #Increase Max Health
+        player.MAXHPBonus += item.statBonus
+    elif item.affectedStat == "A": #increase damage
+        player.damageBonus += item.statBonus
+    elif item.affectedStat == "D": #increase armor
+        player.defenseBonus += item.statBonus
+    elif item.affectedStat == "H": #satiation
+        player.hungerBonus += item.statBonus
+
+def unequip(item):
+    if item.affectedStat == "HP": #Increase Max Health
+        player.MAXHPBonus -= item.statBonus
+    elif item.affectedStat == "A": #increase damage
+        player.damageBonus -= item.statBonus
+    elif item.affectedStat == "D": #increase armor
+        player.defenseBonus -= item.statBonus
+    elif item.affectedStat == "H": #satiation
+        player.hungerBonus -= item.statBonus
 
 def dispMap():
     vMap = np.full_like(dungeon, "   ")
@@ -458,14 +554,14 @@ def dispMap():
             if dungeon[i][j] is not None:
                 if i == player.position[0] and j == player.position[1] and player.hasCompass and dungeon[i][j].searched:
                     vMap[i][j] = '{x}'
-                elif dungeon[i][j].visited and player.hasCompass and dungeon[i][j].searched:
-                    vMap[i][j] = '{' + str(len([o.state for o in dungeon[i][j].doors.values() if o.state in [1,2,3]])) +'}'
+                #elif dungeon[i][j].visited and player.hasCompass and dungeon[i][j].searched:
+                #    vMap[i][j] = '{' + str(len([o.state for o in dungeon[i][j].doors.values() if o.state in [1,2,3]])) +'}'
                 elif dungeon[i][j].visited and not player.hasCompass and dungeon[i][j].searched:
                     vMap[i][j] = "{ }"
                 elif i == player.position[0] and j == player.position[1] and player.hasCompass:
                     vMap[i][j] = '[x]'
-                elif dungeon[i][j].visited and player.hasCompass:
-                    vMap[i][j] = '[' + str(len([o.state for o in dungeon[i][j].doors.values() if o.state in [1,2,3]])) +']'
+                #elif dungeon[i][j].visited and player.hasCompass:
+                #    vMap[i][j] = '[' + str(len([o.state for o in dungeon[i][j].doors.values() if o.state in [1,2,3]])) +']'
                 elif dungeon[i][j].visited and not player.hasCompass:
                     vMap[i][j] = "[ ]"
                 elif player.hasMap:
@@ -476,9 +572,27 @@ def dispMap():
 
 dungeonSize = max(5, int(input("Size? ")))
 dungeon, dunmap, bossRoom = buildDungeon(dungeonSize)
-MAX_HEALTH = 10
 startingWeapon = Treasure("A",1)
-player = Player(MAX_HEALTH, 1, 100, [dungeonSize - 1, int((dungeonSize - 1) / 2)], [startingWeapon])
+weap2 = Treasure("A",1)
+bonus = input("S/D/C? ")
+if bonus == "S":
+    attack = 1
+else:
+    attack = 0
+if bonus == "D":
+    hungerBonus = 1
+else:
+    hungerBonus = 0
+if bonus == "C":
+    MAX_HEALTH = 15
+else:
+    MAX_HEALTH = 5
+if bonus == "6969":
+    attack=10
+    hungerBonus = 10
+    MAX_HEALTH = 100
+
+player = Player(MAX_HEALTH, attack, hungerBonus, [dungeonSize - 1, int((dungeonSize - 1) / 2)], [startingWeapon, weap2])
 useItem(startingWeapon)
 action = 0
 
@@ -502,7 +616,6 @@ while action != "Q":
         inventory()
     elif action == "H":
         dungeon[player.position[0], player.position[1]].hazard.disarm()
-
     elif action == "HELP":
         print("NSEW: Move")
         print("FX: Fight X")
@@ -510,3 +623,5 @@ while action != "Q":
         print("R: Rest")
         print("T: Grab Treasure")
         print("I: Inventory")
+
+    wanderingMonsters()
